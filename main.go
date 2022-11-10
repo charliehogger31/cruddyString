@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -126,6 +128,30 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	// Initiation
+	if len(os.Args) >= 2 {
+		f, err := os.Open(os.Args[1])
+		if err != nil {
+			fmt.Println("Error on config file open: ", err)
+			return
+		}
+
+		fScan := bufio.NewScanner(f)
+		fScan.Split(bufio.ScanLines)
+
+		cacheMutex.Lock()
+		for fScan.Scan() {
+			cache = append(cache, fScan.Text())
+		}
+		cacheMutex.Unlock()
+
+		errf := f.Close()
+		if errf != nil {
+			fmt.Println("Error on config file close: ", errf)
+		}
+	}
+
+	// Server Domain
 	var sv1 http.Server
 	defer func(sv1 *http.Server) {
 		err := sv1.Close()
