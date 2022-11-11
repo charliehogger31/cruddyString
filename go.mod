@@ -1,6 +1,6 @@
 module cruddyString
 
-go 1.19
+go 1.18
 
 require gopkg.in/ini.v1 v1.67.0
 

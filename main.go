@@ -43,6 +43,13 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	} else if req.Method == "POST" {
+		cacheMutex.Lock()
+		if maxNRs != 0 && len(cache) >= maxNRs {
+			w.WriteHeader(500)
+			cacheMutex.Unlock()
+			return
+		}
+		cacheMutex.Unlock()
 		err := req.ParseForm()
 		if err != nil {
 			w.WriteHeader(500)
@@ -55,6 +62,13 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		} else {
 			cacheMutex.Lock()
+
+			if len(inp) > maxRsSize {
+				w.WriteHeader(500)
+				cacheMutex.Unlock()
+				return
+			}
+
 			cache = append(cache, inp)
 			_, err := fmt.Fprintf(w, strconv.Itoa(len(cache)-1))
 			if err != nil {
@@ -117,6 +131,13 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					} else {
 						cacheMutex.Lock()
 						old := cache[i]
+
+						if len(inp) > maxRsSize {
+							w.WriteHeader(500)
+							cacheMutex.Unlock()
+							return
+						}
+
 						cache[i] = inp
 						cacheMutex.Unlock()
 						_, err := fmt.Fprintf(w, old)
@@ -144,12 +165,15 @@ func main() {
 		fmt.Println("Starting with max # of resources: ", cfg.Section("memory").Key("maxnumresources").String())
 
 		maxRsSize, err = cfg.Section("memory").Key("maxresourcesize").Int()
-		maxNRs, err = cfg.Section("memory").Key("maxnumresources").Int() // TODO: Implement into checks and balances
+		maxNRs, err = cfg.Section("memory").Key("maxnumresources").Int()
 
 		if err != nil {
 			fmt.Println("Error with ini file: ", err)
 			os.Exit(1)
 		}
+	} else {
+		maxRsSize = 0
+		maxNRs = 0 // Set to infinity
 	}
 
 	if len(os.Args) >= 3 {
