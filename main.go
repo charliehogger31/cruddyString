@@ -8,11 +8,15 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"gopkg.in/ini.v1"
 )
 
 type master struct{}
 
 var cache []string
+var maxRsSize int
+var maxNRs int
 var cacheMutex sync.Mutex
 
 func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -130,10 +134,29 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func main() {
 	// Initiation
 	if len(os.Args) >= 2 {
+		cfg, err := ini.Load(os.Args[1])
+		if err != nil {
+			fmt.Println("Error loading ini: ", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Starting with max resource size: ", cfg.Section("memory").Key("maxresourcesize").String())
+		fmt.Println("Starting with max # of resources: ", cfg.Section("memory").Key("maxnumresources").String())
+
+		maxRsSize, err = cfg.Section("memory").Key("maxresourcesize").Int()
+		maxNRs, err = cfg.Section("memory").Key("maxnumresources").Int() // TODO: Implement into checks and balances
+
+		if err != nil {
+			fmt.Println("Error with ini file: ", err)
+			os.Exit(1)
+		}
+	}
+
+	if len(os.Args) >= 3 {
 		f, err := os.Open(os.Args[1])
 		if err != nil {
 			fmt.Println("Error on config file open: ", err)
-			return
+			os.Exit(1)
 		}
 
 		fScan := bufio.NewScanner(f)
