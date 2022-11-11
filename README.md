@@ -3,6 +3,8 @@
 
 CRUD thing were you can put strings up.
 
+Usage: cruddyString <ini file> <preload>
+
 # API
 CruddyString (CS) hosts an HTTP server on port 8080
 ## CRUD
@@ -20,3 +22,22 @@ Update will respond with the old data before the rewrite.
 ### Delete
 Send a DELETE request tot the directory '/i' where i is the index of the resource you wish to update.
 Delete will respond with the old data that was deleted.
+
+## Ini file
+An ini file can be optionally used.
+```
+[memory]
+maxresourcesize=x
+maxnumresources=y
+```
+> Replace x with the max resource size
+> and y with the max number of resources
+
+Put the path to the ini file in the first argument.
+
+## Preload
+You can preload resources to CS with a text file.
+Supply the path to this text file in the second argument.
+> Note: You must use an ini file if you wish to preload.
+
+CS will read the file line by line adding each line as a resource.
