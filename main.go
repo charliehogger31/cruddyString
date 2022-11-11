@@ -63,7 +63,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		} else {
 			cacheMutex.Lock()
 
-			if len(inp) > maxRsSize {
+			if len(inp) > maxRsSize && maxRsSize != 0 {
 				w.WriteHeader(500)
 				cacheMutex.Unlock()
 				return
@@ -132,7 +132,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 						cacheMutex.Lock()
 						old := cache[i]
 
-						if len(inp) > maxRsSize {
+						if len(inp) > maxRsSize && maxRsSize != 0 {
 							w.WriteHeader(500)
 							cacheMutex.Unlock()
 							return
@@ -188,7 +188,13 @@ func main() {
 
 		cacheMutex.Lock()
 		for fScan.Scan() {
-			cache = append(cache, fScan.Text())
+			inp := fScan.Text()
+			if len(inp) <= maxRsSize && maxRsSize != 0 {
+				cache = append(cache, inp)
+			}
+			if len(cache) >= maxNRs && maxNRs != 0 {
+				break
+			}
 		}
 		cacheMutex.Unlock()
 
