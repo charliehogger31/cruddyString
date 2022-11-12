@@ -3,7 +3,7 @@
 
 CRUD thing were you can put strings up.
 
-Usage: cruddyString <ini file> <preload>
+Usage: cruddyString _ini file_ _preload_
 
 # API
 CruddyString (CS) hosts an HTTP server on port 8080
