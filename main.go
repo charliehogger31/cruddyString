@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"html"
 	"net/http"
 	"os"
 	"strconv"
@@ -34,7 +35,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				return
 			} else {
 				cacheMutex.Lock()
-				_, err := fmt.Fprintf(w, cache[i])
+				_, err := fmt.Fprintf(w, html.EscapeString(cache[i]))
 				cacheMutex.Unlock()
 				if err != nil {
 					w.WriteHeader(500)
@@ -93,7 +94,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				old := cache[i]
 				cache[i] = ""
 				cacheMutex.Unlock()
-				_, err := fmt.Fprintf(w, old)
+				_, err := fmt.Fprintf(w, html.EscapeString(old))
 				if err != nil {
 					w.WriteHeader(500)
 					return
@@ -140,7 +141,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 						cache[i] = inp
 						cacheMutex.Unlock()
-						_, err := fmt.Fprintf(w, old)
+						_, err := fmt.Fprintf(w, html.EscapeString(old))
 						if err != nil {
 							w.WriteHeader(500)
 							return
