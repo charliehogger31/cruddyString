@@ -2,8 +2,16 @@ package main
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"html"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
@@ -16,8 +24,7 @@ import (
 type master struct{}
 
 var cache []string
-var maxRsSize int
-var maxNRs int
+var config conf
 var cacheMutex sync.Mutex
 
 func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -45,7 +52,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	} else if req.Method == "POST" {
 		cacheMutex.Lock()
-		if maxNRs != 0 && len(cache) >= maxNRs {
+		if config.maxNumResources != 0 && len(cache) >= config.maxNumResources {
 			w.WriteHeader(500)
 			cacheMutex.Unlock()
 			return
@@ -64,7 +71,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		} else {
 			cacheMutex.Lock()
 
-			if len(inp) > maxRsSize && maxRsSize != 0 {
+			if len(inp) > config.maxResourceSize && config.maxResourceSize != 0 {
 				w.WriteHeader(500)
 				cacheMutex.Unlock()
 				return
@@ -133,7 +140,7 @@ func (m *master) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 						cacheMutex.Lock()
 						old := cache[i]
 
-						if len(inp) > maxRsSize && maxRsSize != 0 {
+						if len(inp) > config.maxResourceSize && config.maxResourceSize != 0 {
 							w.WriteHeader(500)
 							cacheMutex.Unlock()
 							return
@@ -165,16 +172,26 @@ func main() {
 		fmt.Println("Starting with max resource size: ", cfg.Section("memory").Key("maxresourcesize").String())
 		fmt.Println("Starting with max # of resources: ", cfg.Section("memory").Key("maxnumresources").String())
 
-		maxRsSize, err = cfg.Section("memory").Key("maxresourcesize").Int()
-		maxNRs, err = cfg.Section("memory").Key("maxnumresources").Int()
+		config.maxResourceSize, err = cfg.Section("memory").Key("maxresourcesize").Int()
+		config.maxNumResources, err = cfg.Section("memory").Key("maxnumresources").Int()
+
+		config.useTLS, err = cfg.Section("tls").Key("usetls").Bool()
+		config.selfSign, err = cfg.Section("tls").Key("selfsign").Bool()
+
+		if !config.selfSign {
+			config.pemFile = cfg.Section("tls").Key("certfile").String()
+			config.keyFile = cfg.Section("tls").Key("keyfile").String()
+		}
 
 		if err != nil {
 			fmt.Println("Error with ini file: ", err)
 			os.Exit(1)
 		}
 	} else {
-		maxRsSize = 0
-		maxNRs = 0 // Set to infinity
+		config.maxResourceSize = 0
+		config.maxNumResources = 0 // Set to infinity
+		config.useTLS = false
+		config.selfSign = false
 	}
 
 	if len(os.Args) >= 3 {
@@ -190,10 +207,10 @@ func main() {
 		cacheMutex.Lock()
 		for fScan.Scan() {
 			inp := fScan.Text()
-			if len(inp) <= maxRsSize && maxRsSize != 0 {
+			if len(inp) <= config.maxResourceSize && config.maxResourceSize != 0 {
 				cache = append(cache, inp)
 			}
-			if len(cache) >= maxNRs && maxNRs != 0 {
+			if len(cache) >= config.maxNumResources && config.maxNumResources != 0 {
 				break
 			}
 		}
@@ -203,6 +220,70 @@ func main() {
 		if errf != nil {
 			fmt.Println("Error on config file close: ", errf)
 		}
+	}
+
+	if config.selfSign {
+		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			fmt.Println("Error generating ECDSA privatekey", err)
+			os.Exit(1)
+		}
+		serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+		serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+		if err != nil {
+			fmt.Println("Error with serial number generation", err)
+
+		}
+
+		template := x509.Certificate{
+			SerialNumber: serialNumber,
+			Subject: pkix.Name{
+				Organization: []string{"Test Corp"},
+			},
+			DNSNames:  []string{"localhost"},
+			NotBefore: time.Now(),
+			NotAfter:  time.Now().Add(3 * time.Hour),
+
+			KeyUsage:              x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			BasicConstraintsValid: true,
+		}
+
+		derByte, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+		if err != nil {
+			fmt.Println("Error creating self signed certificate", err)
+			os.Exit(1)
+		}
+
+		pemCert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derByte})
+		if pemCert == nil {
+			fmt.Println("Failed PEM Encoding")
+			os.Exit(1)
+		}
+
+		if err := os.WriteFile("cert.pem", pemCert, 0644); err != nil {
+			fmt.Println("Error writing PEM cert", err)
+			os.Exit(1)
+		}
+
+		config.pemFile = "cert.pem"
+
+		privBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			fmt.Println("Error on key marshal", err)
+			os.Exit(1)
+		}
+
+		pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+		if pemKey == nil {
+			fmt.Println("Pem Fail for key")
+		}
+
+		if err = os.WriteFile("key.pem", pemKey, 0600); err != nil {
+			fmt.Println("Error writing PEM key", err)
+		}
+		config.keyFile = "key.pem"
+
 	}
 
 	// Server Domain
@@ -215,7 +296,9 @@ func main() {
 	}(&sv1)
 	sv1.Addr = ":8080"
 	sv1.Handler = &master{}
-	sv1.TLSConfig = nil
+	sv1.TLSConfig = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}
 	sv1.ReadTimeout = 30 * time.Second
 	sv1.WriteTimeout = 30 * time.Second
 	sv1.IdleTimeout = 30 * time.Second
@@ -226,9 +309,15 @@ func main() {
 	sv1.BaseContext = nil
 	sv1.ConnState = nil
 
-	err := sv1.ListenAndServe()
-
-	if err != nil {
-		fmt.Println("Listen and Server Error: ", err)
+	if config.useTLS {
+		err := sv1.ListenAndServeTLS(config.pemFile, config.keyFile)
+		if err != nil {
+			fmt.Println("Listen and Server Error: ", err)
+		}
+	} else {
+		err := sv1.ListenAndServe()
+		if err != nil {
+			fmt.Println("Listen and Server Error: ", err)
+		}
 	}
 }
